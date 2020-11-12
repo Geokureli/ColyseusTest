@@ -19,7 +19,7 @@ class Net
             #if debug
             client = new Client('ws://localhost:2567');
             #else
-            client = new Client('wss://fishing-alone-together.herokuapp.com');
+            client = new Client('wss://advent-colyseus-test.herokuapp.com');
             #end
         }
         else if (room != null)
