@@ -2,13 +2,6 @@
 	"version": "0.2.0",
 	"configurations": [
 		{
-			"name": "Flash",
-			"type": "fdb",
-			"request": "launch",
-			"program": "${workspaceRoot}/export/flash/bin/AdventCalender.swf",
-			"preLaunchTask": "debug: flash"
-		},
-		{
 			"name": "Chrome",
 			"type": "chrome",
 			"request": "launch",

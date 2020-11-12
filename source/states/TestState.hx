@@ -2,11 +2,16 @@ package states;
 
 import schema.GameState;
 import net.Net;
+import util.AssetPaths;
 
+import flixel.FlxG;
+import flixel.FlxSprite;
 import flixel.graphics.FlxGraphic;
 import flixel.graphics.frames.FlxBitmapFont;
-import flixel.tile.FlxTilemap;
+import flixel.math.FlxPoint;
 import flixel.text.FlxBitmapText;
+import flixel.tile.FlxTilemap;
+import flixel.util.FlxColor;
 import flixel.util.FlxTimer;
 
 import io.colyseus.Client;
@@ -139,7 +144,7 @@ class TestState extends flixel.FlxState
                 room.state.avatars.onAdd = (avatar, key) ->
                 {
                     // trace("avatar added at " + key + " => " + avatar);
-                    trace(room.sessionId + ' added: $key=>${(avatar.color:Int).to_color().rgb.to_hex()} @(${avatar.x}, ${avatar.y}');
+                    trace(room.sessionId + ' added: $key=>${avatar.color} @(${avatar.x}, ${avatar.y}');
                     
                     if (key == room.sessionId)
                         trace(room.sessionId + " this is you!");
