@@ -1,20 +1,14 @@
 package;
 
 import schema.Avatar;
-import zero.utilities.IntPoint;
-import zero.utilities.Vec2;
 import Types;
-
-using Util;
-using Math;
-using zero.extensions.FloatExt;
 
 @:expose
 class Game
 {
     public function new() {}
     
-    public function processMessage(type:String, data:Dynamic, avatar:Dynamic, state:Dynamic)
+    public function processMessage(type:String, data:Dynamic, avatar:Avatar, state:Dynamic)
     {
         if (avatar == null)
             return;
@@ -22,8 +16,12 @@ class Game
         switch (type)
         {
             case "avatar":
-                for (field in Reflect.fields(data))
-                    Reflect.setField(avatar, field, Reflect.field(data, field));
+            {
+                if (data.x     != null) avatar.x     = data.x;
+                if (data.y     != null) avatar.y     = data.y;
+                if (data.color != null) avatar.color = data.color;
+                if (data.state != null) avatar.state = data.state;
+            }
         }
     }
     

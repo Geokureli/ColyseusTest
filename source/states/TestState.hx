@@ -3,8 +3,10 @@ package states;
 import schema.GameState;
 import net.Net;
 
-import flixel.text.FlxBitmapText;
+import flixel.graphics.FlxGraphic;
 import flixel.graphics.frames.FlxBitmapFont;
+import flixel.tile.FlxTilemap;
+import flixel.text.FlxBitmapText;
 import flixel.util.FlxTimer;
 
 import io.colyseus.Client;
@@ -21,6 +23,7 @@ class TestState extends flixel.FlxState
     var byond:FlxBitmapFont;
     var connecting:FlxBitmapText;
     
+    var map:FlxTilemap;
     var player:PlayerAvatar;
     var npcs:Map<String, Npc> = [];
     
@@ -40,6 +43,16 @@ class TestState extends flixel.FlxState
     {
         super.create();
         
+        final m = 40;
+        final w = FlxG.width - m;
+        final h = FlxG.height - m;
+        
+        if (spawnInfo.x     == null) spawnInfo.x = FlxG.random.float(m, w);
+        if (spawnInfo.y     == null) spawnInfo.y = FlxG.random.float(m, h);
+        if (spawnInfo.color == null) spawnInfo.color = FlxColor.fromHSB(FlxG.random.float(0, 36) * 10, 1, 1);
+        
+        createTilemap();
+        
         byond = FlxBitmapFont.fromAngelCode(Fonts.byond__png, Fonts.byond__fnt);
         
         connecting = new FlxBitmapText(byond);
@@ -54,6 +67,32 @@ class TestState extends flixel.FlxState
         init_client();
     }
     
+    function createTilemap()
+    {
+        final size = 8;
+        final rows = Math.floor(FlxG.width  / size);
+        final cols = Math.floor(FlxG.height / size);
+        var tileData = [for (i in 0...rows*cols) 0];
+        for(i in 0...cols)
+        {
+            tileData[i] = 1;
+            tileData[rows*cols - i - 1] = 1;
+        }
+        
+        final edge = (spawnInfo.roomName == Default ? 0 : cols - 1);// left or right side
+        for(i in 0...rows)
+            tileData[cols * i + edge] = 1;
+        
+        // create random walls (needs A*)
+        // FlxG.random.currentSeed = 0;
+        // for(i in 0...20)
+        //     tileData[FlxG.random.int(0, rows*cols)] = 1;
+        
+        map = new FlxTilemap();
+        map.loadMapFromArray(tileData, rows, cols, "assets/images/autotiles.png", 0, 0, AUTO);
+        add(map);
+    }
+    
     override public function update(elapsed:Float)
     {
         super.update(elapsed);
@@ -62,28 +101,20 @@ class TestState extends flixel.FlxState
         {
             if (player.timer > PlayerAvatar.SEND_DELAY)
             {
-                if (player.x != player.lastSend.x || player.y != player.lastSend.y)
-                    Net.send("avatar", { x:player.x, y:player.y });
-                player.networkUpdate();
+                if (Std.int(player.x) != player.lastSend.x || Std.int(player.y) != player.lastSend.y)
+                {
+                    Net.send("avatar", { x:Std.int(player.x), y:Std.int(player.y) });
+                    player.networkUpdate();
+                }
             }
             
-            switch(spawnInfo.roomName)
-            {
-                case Default:
-                {
-                    if (player.x < 0) player.x = 0;
-                    if (player.y < 0) player.y = 0;
-                    if (player.y > FlxG.height - player.height) player.y = FlxG.height - player.height;
-                    if (player.x > FlxG.width) exitTo(Second);
-                }
-                case Second:
-                {
-                    if (player.x + player.width < 0) exitTo(Default);
-                    if (player.y < 0) player.y = 0;
-                    if (player.x > FlxG.width - player.width) player.x = FlxG.width - player.width;
-                    if (player.y > FlxG.height - player.height) player.y = FlxG.height - player.height;
-                }
-            }
+            FlxG.collide(player, map);
+            
+            if (spawnInfo.roomName == Default && player.x > FlxG.width)
+                exitTo(Second);
+            
+            if (spawnInfo.roomName == Second && player.x < FlxG.width)
+               exitTo(Default);
         }
     }
     
@@ -147,7 +178,7 @@ class TestState extends flixel.FlxState
                 
                 player = new PlayerAvatar(spawnInfo.x, spawnInfo.y, spawnInfo.color);
                 add(player);
-                Net.send("avatar", { x:player.x, y:player.y, color:player.testColor });
+                Net.send("avatar", { x:Std.int(player.x), y:Std.int(player.y), color:player.testColor });
             }
         );
     }
@@ -165,10 +196,15 @@ class TestState extends flixel.FlxState
 
 class Npc extends Avatar
 {
+    inline static public var ACCEL_SPEED = Avatar.ACCEL_SPEED;
+    
+    var targetPos = FlxPoint.get();
     var key:String;
+    
     public function new(key:String, x = 0.0, y = 0.0, color:Int)
     {
         this.key = key;
+        targetPos.set(x, y);
         
         super(x, y, color);
     }
@@ -183,10 +219,25 @@ class Npc extends Avatar
         {
             switch (change.field)
             {
-                case "x": x = change.value;
-                case "y": y = change.value;
+                case "x": targetPos.x = change.value;
+                case "y": targetPos.y = change.value;
+                case "color": testColor = color = change.value;
             }
         }
+    }
+    
+    
+    override function update(elapsed:Float)
+    {
+        super.update(elapsed);
+        
+        final pressR = x - targetPos.x < -20;
+        final pressL = x - targetPos.x >  20;
+        final pressD = y - targetPos.y < -20;
+        final pressU = y - targetPos.y >  20;
+        
+        acceleration.x = ((pressR ? 1 : 0) - (pressL ? 1 : 0)) * ACCEL_SPEED;
+        acceleration.y = ((pressD ? 1 : 0) - (pressU ? 1 : 0)) * ACCEL_SPEED;
     }
     
     inline function outputChange(change:DataChange)
@@ -197,23 +248,14 @@ class Npc extends Avatar
 
 class PlayerAvatar extends Avatar
 {
-    inline static public var SEND_DELAY = 0.25;
-    
-    inline static public var ACCEL_SPEED = Avatar.MAX_SPEED / Avatar.ACCEL_TIME;
+    inline static public var ACCEL_SPEED = Avatar.ACCEL_SPEED;
+    inline static public var SEND_DELAY = 0.5;
     
     public var timer = 0.0;
     public var lastSend = FlxPoint.get();
     
-    public function new(x:Float = null, y:Float = null, color:FlxColor = null)
+    public function new(x, y, color)
     {
-        final m = 20;
-        final w = FlxG.width - m;
-        final h = FlxG.height - m;
-        
-        if (x == null) x = FlxG.random.float(m, w);
-        if (y == null) y = FlxG.random.float(m, h);
-        if (color == null) color = FlxColor.fromHSB(FlxG.random.float(0, 360), 1, 1);
-        
         super(x, y, color);
         lastSend.set(x, y);
     }
@@ -236,8 +278,8 @@ class PlayerAvatar extends Avatar
     
     public function networkUpdate()
     {
-        timer -= SEND_DELAY;
-        lastSend.set(x, y);
+        timer = 0;
+        lastSend.set(Std.int(x), Std.int(y));
         color = FlxColor.WHITE;
     }
 }
@@ -246,6 +288,8 @@ class Avatar extends FlxSprite
 {
     inline static public var ACCEL_TIME = 0.2;
     inline static public var MAX_SPEED = 200;
+    inline static public var ACCEL_SPEED = MAX_SPEED / ACCEL_TIME;
+    
     
     public var testColor = 0x0;
     

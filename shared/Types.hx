@@ -1,25 +1,9 @@
 package;
 
-typedef InputMessage =
-{
-    time:Float,
-    ?mouse:MouseInput,
-    ?x:Float,
-    ?Y:Float
-}
-
-enum abstract MouseInput(String)
-{
-    var Pressed = 'p';
-    var JustPressed = 'jp';
-    var JustReleased = 'jr';
-}
-
 @:structInit
 class GState
 {
     public var avatars:Map<String, AvatarState>;
-    public var time:Float;
 }
 
 @:structInit
