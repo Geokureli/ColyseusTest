@@ -3,6 +3,7 @@ package states;
 import schema.GameState;
 import net.Net;
 import util.AssetPaths;
+import Types;
 
 import flixel.FlxG;
 import flixel.FlxSprite;
@@ -183,7 +184,7 @@ class TestState extends flixel.FlxState
                 
                 player = new PlayerAvatar(spawnInfo.x, spawnInfo.y, spawnInfo.color);
                 add(player);
-                Net.send("avatar", { x:Std.int(player.x), y:Std.int(player.y), color:player.testColor });
+                Net.send("avatar", { x:Std.int(player.x), y:Std.int(player.y), color:player.testColor, state:Idle });
             }
         );
     }
@@ -203,13 +204,12 @@ class Npc extends Avatar
 {
     inline static public var ACCEL_SPEED = Avatar.ACCEL_SPEED;
     
-    var targetPos = FlxPoint.get();
     var key:String;
     
     public function new(key:String, x = 0.0, y = 0.0, color:Int)
     {
         this.key = key;
-        targetPos.set(x, y);
+        targetPos = FlxPoint.get(x, y);
         
         super(x, y, color);
     }
@@ -220,6 +220,8 @@ class Npc extends Avatar
             + ([for (change in changes) outputChange(change)].join(", "))
         );
         
+        var oldState = state;
+        
         for (change in changes)
         {
             switch (change.field)
@@ -227,7 +229,14 @@ class Npc extends Avatar
                 case "x": targetPos.x = change.value;
                 case "y": targetPos.y = change.value;
                 case "color": testColor = color = change.value;
+                case "state": state = change.value;
             }
+        }
+        
+        if (state != oldState && oldState == Joining)
+        {
+            x = targetPos.x;
+            y = targetPos.y;
         }
     }
     
@@ -263,6 +272,7 @@ class PlayerAvatar extends Avatar
     {
         super(x, y, color);
         lastSend.set(x, y);
+        state = Idle;
     }
     
     override function update(elapsed:Float)
@@ -272,10 +282,26 @@ class PlayerAvatar extends Avatar
         color = testColor;
         timer += elapsed;
         
-        final pressR = FlxG.keys.pressed.RIGHT;
-        final pressL = FlxG.keys.pressed.LEFT;
-        final pressU = FlxG.keys.pressed.UP;
-        final pressD = FlxG.keys.pressed.DOWN;
+        var pressR = FlxG.keys.pressed.RIGHT;
+        var pressL = FlxG.keys.pressed.LEFT;
+        var pressU = FlxG.keys.pressed.UP;
+        var pressD = FlxG.keys.pressed.DOWN;
+        
+        if (pressR || pressL || pressU || pressD)
+            targetPos = null;
+        else
+        {
+            if (FlxG.mouse.pressed)
+                targetPos = FlxG.mouse.getWorldPosition();
+            
+            if (targetPos != null)
+            {
+                pressR = x - targetPos.x < -20;
+                pressL = x - targetPos.x >  20;
+                pressD = y - targetPos.y < -20;
+                pressU = y - targetPos.y >  20;
+            }
+        }
         
         acceleration.x = ((pressR ? 1 : 0) - (pressL ? 1 : 0)) * ACCEL_SPEED;
         acceleration.y = ((pressD ? 1 : 0) - (pressU ? 1 : 0)) * ACCEL_SPEED;
@@ -295,8 +321,10 @@ class Avatar extends FlxSprite
     inline static public var MAX_SPEED = 200;
     inline static public var ACCEL_SPEED = MAX_SPEED / ACCEL_TIME;
     
-    
     public var testColor = 0x0;
+    public var state:PlayerState = Joining;
+    
+    var targetPos:FlxPoint;
     
     public function new(x = 0.0, y = 0.0, color:Int)
     {
