@@ -19,5 +19,5 @@ enum abstract PlayerState(Int)
 {
     var Joining;
     var Idle;
-    var Walking;
+    var Leaving;
 }

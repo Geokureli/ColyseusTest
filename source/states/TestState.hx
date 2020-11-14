@@ -1,14 +1,14 @@
 package states;
 
-import schema.GameState;
-import net.Net;
-import util.AssetPaths;
 import Types;
+import net.Net;
+import props.Avatar;
+import schema.GameState;
+import util.AssetPaths;
 
 import flixel.FlxG;
-import flixel.FlxSprite;
-import flixel.graphics.FlxGraphic;
 import flixel.graphics.frames.FlxBitmapFont;
+import flixel.group.FlxGroup;
 import flixel.math.FlxPoint;
 import flixel.text.FlxBitmapText;
 import flixel.tile.FlxTilemap;
@@ -25,12 +25,14 @@ import io.colyseus.serializer.schema.Schema;
 class TestState extends flixel.FlxState
 {
     final render_delay:Int = 100;
+    inline static var TILE_SIZE = 32;
     
     var byond:FlxBitmapFont;
     var connecting:FlxBitmapText;
     
-    var map:FlxTilemap;
+    public var map:FlxTilemap;
     var player:PlayerAvatar;
+    var avatars = new FlxTypedGroup<Avatar>();
     var npcs:Map<String, Npc> = [];
     
     var spawnInfo:{ roomName:RoomName, ?x:Float, ?y:Float, ?color:FlxColor };
@@ -49,15 +51,29 @@ class TestState extends flixel.FlxState
     {
         super.create();
         
-        final m = 40;
-        final w = FlxG.width - m;
-        final h = FlxG.height - m;
+        createTilemap();
         
-        if (spawnInfo.x     == null) spawnInfo.x = FlxG.random.float(m, w);
-        if (spawnInfo.y     == null) spawnInfo.y = FlxG.random.float(m, h);
+        if (spawnInfo.x == null && spawnInfo.y == null)
+        {
+            
+            final m = 40;
+            final w = FlxG.width - m;
+            final h = FlxG.height - m;
+            final p = FlxPoint.get();
+            var index = 0;
+            do
+            {
+                p.x = FlxG.random.int(1, map.widthInTiles - 1);
+                p.y = FlxG.random.int(1, map.heightInTiles - 1);
+                index = map.getTile(Std.int(p.x), Std.int(p.y));
+            }
+            while(map.getTileCollisions(index) != 0);
+            spawnInfo.x = (p.x + 0.5) * TILE_SIZE;
+            spawnInfo.y = (p.y + 0.5) * TILE_SIZE;
+        }
         if (spawnInfo.color == null) spawnInfo.color = FlxColor.fromHSB(FlxG.random.float(0, 36) * 10, 1, 1);
         
-        createTilemap();
+        add(avatars);
         
         byond = FlxBitmapFont.fromAngelCode(Fonts.byond__png, Fonts.byond__fnt);
         
@@ -70,14 +86,13 @@ class TestState extends flixel.FlxState
         
         add(connecting);
         // new FlxTimer().start(1, timer->init_client());
-        init_client();
+        initClient();
     }
     
     function createTilemap()
     {
-        final size = 8;
-        final rows = Math.floor(FlxG.width  / size);
-        final cols = Math.floor(FlxG.height / size);
+        final rows = Math.floor(FlxG.width  / TILE_SIZE);
+        final cols = Math.floor(FlxG.height / TILE_SIZE);
         var tileData = [for (i in 0...rows*cols) 0];
         for(i in 0...cols)
         {
@@ -89,10 +104,16 @@ class TestState extends flixel.FlxState
         for(i in 0...rows)
             tileData[cols * i + edge] = 1;
         
-        // create random walls (needs A*)
-        // FlxG.random.currentSeed = 0;
-        // for(i in 0...20)
-        //     tileData[FlxG.random.int(0, rows*cols)] = 1;
+        // create random walls
+        var oldSeed = FlxG.random.currentSeed;
+        FlxG.random.currentSeed = 0;//arbitrary
+        for(i in 0...35)
+        {
+            final index = FlxG.random.int(0, rows*cols);
+            tileData[index] = 1;
+        }
+        
+        FlxG.random.currentSeed = oldSeed;
         
         map = new FlxTilemap();
         map.loadMapFromArray(tileData, rows, cols, "assets/images/autotiles.png", 0, 0, AUTO);
@@ -105,31 +126,53 @@ class TestState extends flixel.FlxState
         
         if (player != null)
         {
-            if (player.timer > PlayerAvatar.SEND_DELAY)
+            
+            final moved = Std.int(player.x) != player.lastSend.x || Std.int(player.y) != player.lastSend.y;
+            if (!moved)
             {
-                if (Std.int(player.x) != player.lastSend.x || Std.int(player.y) != player.lastSend.y)
-                {
-                    Net.send("avatar", { x:Std.int(player.x), y:Std.int(player.y) });
-                    player.networkUpdate();
-                }
+                player.timer = 0;
+            }
+            else if (moved && player.timer > player.sendDelay)
+            {
+                final data = { x:Std.int(player.x), y:Std.int(player.y) };
+                trace('sending: (${data.x}, ${data.y})');
+                Net.send("avatar", data);
+                player.networkUpdate();
             }
             
-            FlxG.collide(player, map);
             
-            if (spawnInfo.roomName == Default && player.x > FlxG.width)
+            FlxG.collide(avatars, map);
+            
+            if (spawnInfo.roomName == Default && player.x + player.width > FlxG.width - 10)
                 exitTo(Second);
             
-            if (spawnInfo.roomName == Second && player.x < FlxG.width)
+            if (spawnInfo.roomName == Second && player.x < 10)
                exitTo(Default);
+            
+            if (FlxG.keys.justPressed.P)
+            {
+                player.usePaths = !player.usePaths;
+                if (player.usePaths && !player.drawPath)
+                    player.drawPath = true;
+            }
+            
+            if (FlxG.keys.justPressed.ONE  ) player.sendDelay = 1 * 0.25;
+            if (FlxG.keys.justPressed.TWO  ) player.sendDelay = 2 * 0.25;
+            if (FlxG.keys.justPressed.THREE) player.sendDelay = 3 * 0.25;
+            if (FlxG.keys.justPressed.FOUR ) player.sendDelay = 4 * 0.25;
+            if (FlxG.keys.justPressed.FIVE ) player.sendDelay = 5 * 0.25;
+            if (FlxG.keys.justPressed.SIX  ) player.sendDelay = 6 * 0.25;
+            if (FlxG.keys.justPressed.SEVEN) player.sendDelay = 7 * 0.25;
+            if (FlxG.keys.justPressed.EIGHT) player.sendDelay = 8 * 0.25;
         }
     }
     
     function exitTo(roomName)
     {
-        FlxG.switchState(new TestState(roomName, roomName == Default ? FlxG.width - player.width : 0, player.y, player.testColor));
+        FlxG.switchState(new TestState(roomName, roomName == Default ? FlxG.width - player.width - 20 : 20, player.y, player.testColor));
     }
     
-    function init_client() {
+    function initClient() {
         
         Net.joinRoom(spawnInfo.roomName,
             // function joinOrCreate(err:String, room:Room<GameState>)
@@ -156,7 +199,7 @@ class TestState extends flixel.FlxState
                         {
                             var npc = new Npc(key, avatar.x, avatar.y, avatar.color);
                             npcs[key] = npc;
-                            add(npc);
+                            avatars.add(npc);
                             avatar.onChange = npc.onChange;
                         }
                     }
@@ -168,7 +211,7 @@ class TestState extends flixel.FlxState
                     {
                         var npc = npcs[key];
                         npcs.remove(key);
-                        remove(npc);
+                        avatars.remove(npc);
                         avatar.onChange = null;
                     }
                 }
@@ -183,7 +226,7 @@ class TestState extends flixel.FlxState
                 connecting.kill();
                 
                 player = new PlayerAvatar(spawnInfo.x, spawnInfo.y, spawnInfo.color);
-                add(player);
+                avatars.add(player);
                 Net.send("avatar", { x:Std.int(player.x), y:Std.int(player.y), color:player.testColor, state:Idle });
             }
         );
@@ -197,143 +240,5 @@ class TestState extends flixel.FlxState
     function current_server_time()
     {
         return first_server_timestamp + (Date.now().getTime() - first_timestamp) - render_delay;
-    }
-}
-
-class Npc extends Avatar
-{
-    inline static public var ACCEL_SPEED = Avatar.ACCEL_SPEED;
-    
-    var key:String;
-    
-    public function new(key:String, x = 0.0, y = 0.0, color:Int)
-    {
-        this.key = key;
-        targetPos = FlxPoint.get(x, y);
-        
-        super(x, y, color);
-    }
-    
-    public function onChange(changes:Array<DataChange>)
-    {
-        trace('avatar changes[$key] ' 
-            + ([for (change in changes) outputChange(change)].join(", "))
-        );
-        
-        var oldState = state;
-        
-        for (change in changes)
-        {
-            switch (change.field)
-            {
-                case "x": targetPos.x = change.value;
-                case "y": targetPos.y = change.value;
-                case "color": testColor = color = change.value;
-                case "state": state = change.value;
-            }
-        }
-        
-        if (state != oldState && oldState == Joining)
-        {
-            x = targetPos.x;
-            y = targetPos.y;
-        }
-    }
-    
-    
-    override function update(elapsed:Float)
-    {
-        super.update(elapsed);
-        
-        final pressR = x - targetPos.x < -20;
-        final pressL = x - targetPos.x >  20;
-        final pressD = y - targetPos.y < -20;
-        final pressU = y - targetPos.y >  20;
-        
-        acceleration.x = ((pressR ? 1 : 0) - (pressL ? 1 : 0)) * ACCEL_SPEED;
-        acceleration.y = ((pressD ? 1 : 0) - (pressU ? 1 : 0)) * ACCEL_SPEED;
-    }
-    
-    inline function outputChange(change:DataChange)
-    {
-        return change.field + ":" + change.previousValue + "->" + change.value;
-    }
-}
-
-class PlayerAvatar extends Avatar
-{
-    inline static public var ACCEL_SPEED = Avatar.ACCEL_SPEED;
-    inline static public var SEND_DELAY = 0.5;
-    
-    public var timer = 0.0;
-    public var lastSend = FlxPoint.get();
-    
-    public function new(x, y, color)
-    {
-        super(x, y, color);
-        lastSend.set(x, y);
-        state = Idle;
-    }
-    
-    override function update(elapsed:Float)
-    {
-        super.update(elapsed);
-        
-        color = testColor;
-        timer += elapsed;
-        
-        var pressR = FlxG.keys.pressed.RIGHT;
-        var pressL = FlxG.keys.pressed.LEFT;
-        var pressU = FlxG.keys.pressed.UP;
-        var pressD = FlxG.keys.pressed.DOWN;
-        
-        if (pressR || pressL || pressU || pressD)
-            targetPos = null;
-        else
-        {
-            if (FlxG.mouse.pressed)
-                targetPos = FlxG.mouse.getWorldPosition();
-            
-            if (targetPos != null)
-            {
-                pressR = x - targetPos.x < -20;
-                pressL = x - targetPos.x >  20;
-                pressD = y - targetPos.y < -20;
-                pressU = y - targetPos.y >  20;
-            }
-        }
-        
-        acceleration.x = ((pressR ? 1 : 0) - (pressL ? 1 : 0)) * ACCEL_SPEED;
-        acceleration.y = ((pressD ? 1 : 0) - (pressU ? 1 : 0)) * ACCEL_SPEED;
-    }
-    
-    public function networkUpdate()
-    {
-        timer = 0;
-        lastSend.set(Std.int(x), Std.int(y));
-        color = FlxColor.WHITE;
-    }
-}
-
-class Avatar extends FlxSprite
-{
-    inline static public var ACCEL_TIME = 0.2;
-    inline static public var MAX_SPEED = 200;
-    inline static public var ACCEL_SPEED = MAX_SPEED / ACCEL_TIME;
-    
-    public var testColor = 0x0;
-    public var state:PlayerState = Joining;
-    
-    var targetPos:FlxPoint;
-    
-    public function new(x = 0.0, y = 0.0, color:Int)
-    {
-        super(x, y);
-        
-        makeGraphic(20, 20);
-        testColor = this.color = color;
-        
-        maxVelocity.set(MAX_SPEED, MAX_SPEED);
-        drag.set(MAX_SPEED / ACCEL_TIME, MAX_SPEED / ACCEL_TIME);
     }
 }
